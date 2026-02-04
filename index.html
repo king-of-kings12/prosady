@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="rw">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>Flappy Bird Ultra Pro</title>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body, html { 
+            margin: 0; padding: 0; width: 100vw; height: 100vh; 
+            overflow: hidden; background: #12c2e9;
+            font-family: 'Segoe UI', sans-serif;
+            touch-action: none; display: flex; justify-content: center; align-items: center;
+        }
+
+        #game-container {
+            position: relative; width: 100%; height: 100%;
+            background: linear-gradient(-45deg, #12c2e9, #c471ed, #f64f59);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+        }
+        @keyframes gradientBG { 0% {background-position: 0% 50%} 50% {background-position: 100% 50%} 100% {background-position: 0% 50%} }
+
+        canvas { display: block; width: 100%; height: 100%; }
+
+        #ui-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center;
+            pointer-events: none; z-index: 20;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+            padding: 40px 25px; border-radius: 35px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            pointer-events: auto; text-align: center; color: white;
+            width: 85%; max-width: 350px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+        }
+
+        .btn-group { display: flex; gap: 15px; margin-top: 25px; }
+        .btn { 
+            flex: 1; padding: 18px 5px; font-weight: 900; border-radius: 20px; border: none;
+            cursor: pointer; text-transform: uppercase; color: white; font-size: 16px;
+            box-shadow: 0 6px 0 rgba(0,0,0,0.2);
+        }
+        .btn-easy { background: #2ecc71; border-bottom: 6px solid #27ae60; }
+        .btn-hard { background: #e74c3c; border-bottom: 6px solid #c0392b; }
+        .btn:active { transform: translateY(4px); border-bottom-width: 2px; }
+
+        #score-display {
+            position: absolute; top: 10%; width: 100%;
+            text-align: center; font-size: 80px; font-weight: 900;
+            color: white; text-shadow: 4px 4px 0 rgba(0,0,0,0.2); z-index: 10;
+        }
+        #best-score {
+            position: absolute; top: 20px; right: 20px;
+            color: gold; font-weight: bold; font-size: 18px; text-shadow: 2px 2px #000;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <audio id="bgMusic" loop preload="auto">
+            <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3" type="audio/mpeg">
+        </audio>
+        <audio id="flapSound" preload="auto">
+            <source src="https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3" type="audio/mpeg">
+        </audio>
+
+        <div id="best-score">BEST: 0</div>
+        <div id="score-display">0</div>
+
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="ui-overlay">
+            <div id="start-screen" class="glass-card">
+                <h1 style="margin: 0; font-size: 35px;">FLAPPY PRO</h1>
+                <p>Kanda kuri buto utangire:</p>
+                <div class="btn-group">
+                    <button class="btn btn-easy" onpointerdown="startGame('easy')">Easy</button>
+                    <button class="btn btn-hard" onpointerdown="startGame('hard')">Hard</button>
+                </div>
+            </div>
+
+            <div id="game-over-screen" class="glass-card" style="display: none;">
+                <h2>GAME OVER</h2>
+                <p id="final-score" style="font-size: 24px; margin: 15px 0;"></p>
+                <div class="btn-group">
+                    <button class="btn btn-easy" onpointerdown="startGame('easy')">Retry</button>
+                    <button class="btn btn-hard" onpointerdown="startGame('hard')">Hard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const bgMusic = document.getElementById("bgMusic");
+        const flapSound = document.getElementById("flapSound");
+        const scoreElement = document.getElementById("score-display");
+        const bestElement = document.getElementById("best-score");
+
+        let birdY, birdX, velocity, score, pipes, isPlaying = false;
+        let gravity, jump, pipeSpeed, pipeGap, pipeFrequency;
+        let frameCount = 0;
+        let bestScore = localStorage.getItem("flappyBest") || 0;
+        bestElement.innerText = "BEST: " + bestScore;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        function init(diff) {
+            birdX = canvas.width * 0.25;
+            birdY = canvas.height / 2;
+            velocity = 0; score = 0; pipes = []; frameCount = 0;
+            gravity = canvas.height * 0.0006;
+            jump = canvas.height * -0.012;
+            scoreElement.innerText = "0";
+
+            if (diff === 'easy') {
+                pipeSpeed = canvas.width * 0.007;
+                pipeGap = canvas.height * 0.32;
+                pipeFrequency = 100;
+            } else {
+                pipeSpeed = canvas.width * 0.011;
+                pipeGap = canvas.height * 0.24;
+                pipeFrequency = 75;
+            }
+        }
+
+        function startGame(diff) {
+            if (window.navigator.vibrate) window.navigator.vibrate(20);
+            document.getElementById("start-screen").style.display = "none";
+            document.getElementById("game-over-screen").style.display = "none";
+            init(diff);
+            isPlaying = true;
+            bgMusic.play().catch(() => {});
+            requestAnimationFrame(update);
+        }
+
+        function flap() {
+            if (isPlaying) {
+                velocity = jump;
+                flapSound.currentTime = 0;
+                flapSound.play().catch(() => {});
+            }
+        }
+
+        window.addEventListener("pointerdown", (e) => {
+            if (e.target.tagName !== "BUTTON") {
+                e.preventDefault();
+                flap();
+            }
+        });
+
+        function update() {
+            if (!isPlaying) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            velocity += gravity;
+            birdY += velocity;
+            let birdSize = Math.min(canvas.width, canvas.height) * 0.07;
+
+            // Inyoni
+            ctx.fillStyle = "#fff";
+            ctx.beginPath();
+            ctx.roundRect(birdX, birdY, birdSize, birdSize, 12);
+            ctx.fill();
+
+            // Inkingi
+            let pWidth = canvas.width * 0.18;
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                let p = pipes[i];
+                p.x -= pipeSpeed;
+                ctx.fillStyle = "rgba(255,255,255,0.3)";
+                ctx.fillRect(p.x, 0, pWidth, p.top);
+                ctx.fillRect(p.x, canvas.height - p.bottom, pWidth, p.bottom);
+
+                if (birdX + birdSize > p.x && birdX < p.x + pWidth && 
+                   (birdY < p.top || birdY + birdSize > canvas.height - p.bottom)) endGame();
+
+                if (!p.passed && p.x + pWidth < birdX) {
+                    score++; scoreElement.innerText = score; p.passed = true;
+                }
+                if (p.x + pWidth < 0) pipes.splice(i, 1);
+            }
+
+            if (birdY + birdSize > canvas.height || birdY < 0) endGame();
+            if (++frameCount % pipeFrequency === 0) {
+                let minH = canvas.height * 0.1;
+                let topH = Math.random() * (canvas.height - pipeGap - (minH * 2)) + minH;
+                pipes.push({ x: canvas.width, top: topH, bottom: canvas.height - topH - pipeGap, passed: false });
+            }
+            requestAnimationFrame(update);
+        }
+
+        function endGame() {
+            isPlaying = false;
+            bgMusic.pause();
+            if (score > bestScore) {
+                bestScore = score;
+                localStorage.setItem("flappyBest", bestScore);
+                bestElement.innerText = "BEST: " + bestScore;
+            }
+            document.getElementById("final-score").innerText = "SCORE: " + score;
+            document.getElementById("game-over-screen").style.display = "block";
+        }
+    </script>
+</body>
+</html> 
